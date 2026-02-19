@@ -193,6 +193,48 @@
             margin-top: 5px;
         }
 
+        .chart-section {
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .chart-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .chart-header h2 {
+            color: #667eea;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .chart-header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+        }
+
+        .chart-loading {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+        }
+
+        .chart-error {
+            text-align: center;
+            padding: 50px;
+            color: #e74c3c;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 20px;
@@ -204,6 +246,11 @@
 
             .btn-container {
                 flex-direction: column;
+            }
+
+            .chart-container {
+                height: 300px;
+                padding: 10px;
             }
         }
     </style>
@@ -264,17 +311,41 @@
                 <button type="submit" class="btn-submit" id="submitBtn">บันทึกข้อมูล</button>
             </div>
         </form>
+
+        <!-- Chart Section -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <h2>📊 สถิติเชื้อที่พบแยกตามเดือน</h2>
+                <p>แสดงข้อมูล 12 เดือนล่าสุด</p>
+            </div>
+            <div class="chart-container">
+                <canvas id="pathogenChart"></canvas>
+                <div class="chart-loading" id="chartLoading">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 10px;">กำลังโหลดข้อมูลกราฟ...</p>
+                </div>
+                <div class="chart-error" id="chartError" style="display: none;">
+                    ไม่สามารถโหลดข้อมูลกราฟได้
+                </div>
+            </div>
+        </div>
     </div>
+
+    <!-- Chart.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <script>
         // ⚠️ IMPORTANT: Replace this URL with your deployed Google Apps Script Web App URL
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw0TlfwfYN7R_NDCYjXZ64xtssjmxeJ6iuPZJ0SXKWt3UJ89fU3HeqI6L8mGE-cgxZF/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxTxGU0AK8TS8Do9dMRwnd_0ljnTRbCFV1rz9z3JrvkkmA0Zz7K-naMoneBiCcu4z4Y/exec';
 
         // Set default date to today
         document.getElementById('dateCollected').valueAsDate = new Date();
 
         // Load pathogens on page load
-        window.addEventListener('DOMContentLoaded', loadPathogens);
+        window.addEventListener('DOMContentLoaded', () => {
+            loadPathogens();
+            loadChart();
+        });
 
         async function loadPathogens() {
             const loading = document.getElementById('loading');
@@ -335,6 +406,7 @@
                 if (result.success) {
                     showAlert('success', '✅ บันทึกข้อมูลสำเร็จ!');
                     resetForm();
+                    reloadChartAfterSubmit(); // Reload chart with new data
                 } else {
                     showAlert('error', '❌ เกิดข้อผิดพลาด: ' + result.message);
                 }
@@ -362,6 +434,167 @@
             document.getElementById('hemoForm').reset();
             document.getElementById('dateCollected').valueAsDate = new Date();
             showAlert('info', 'ล้างข้อมูลเรียบร้อย');
+        }
+
+        // ==================== CHART FUNCTIONS ====================
+
+        let pathogenChart = null;
+
+        async function loadChart() {
+            const chartLoading = document.getElementById('chartLoading');
+            const chartError = document.getElementById('chartError');
+            const canvas = document.getElementById('pathogenChart');
+
+            chartLoading.style.display = 'block';
+            chartError.style.display = 'none';
+            canvas.style.display = 'none';
+
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=getChartData');
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    renderChart(result.data);
+                    canvas.style.display = 'block';
+                } else {
+                    chartError.textContent = 'ไม่สามารถโหลดข้อมูลกราฟได้: ' + (result.message || 'Unknown error');
+                    chartError.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+                chartError.textContent = 'เกิดข้อผิดพลาดในการโหลดข้อมูลกราฟ';
+                chartError.style.display = 'block';
+            } finally {
+                chartLoading.style.display = 'none';
+            }
+        }
+
+        function renderChart(data) {
+            const ctx = document.getElementById('pathogenChart').getContext('2d');
+
+            // Destroy existing chart if exists
+            if (pathogenChart) {
+                pathogenChart.destroy();
+            }
+
+            // Generate colors for each pathogen
+            const colors = generateColors(data.datasets.length);
+
+            // Prepare datasets with colors
+            const datasets = data.datasets.map((dataset, index) => ({
+                label: dataset.label,
+                data: dataset.data,
+                backgroundColor: colors[index],
+                borderColor: colors[index],
+                borderWidth: 1
+            }));
+
+            // Create chart
+            pathogenChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.months,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 15,
+                                padding: 15,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(function(tooltipItem) {
+                                        total += tooltipItem.parsed.y;
+                                    });
+                                    return 'รวม: ' + total + ' ราย';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1,
+                                font: {
+                                    size: 11
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Generate distinct colors for chart
+        function generateColors(count) {
+            const baseColors = [
+                'rgba(102, 126, 234, 0.8)',  // Purple
+                'rgba(255, 99, 132, 0.8)',   // Red
+                'rgba(54, 162, 235, 0.8)',   // Blue
+                'rgba(255, 206, 86, 0.8)',   // Yellow
+                'rgba(75, 192, 192, 0.8)',   // Teal
+                'rgba(153, 102, 255, 0.8)',  // Purple
+                'rgba(255, 159, 64, 0.8)',   // Orange
+                'rgba(46, 204, 113, 0.8)',   // Green
+                'rgba(52, 152, 219, 0.8)',   // Blue
+                'rgba(155, 89, 182, 0.8)',   // Purple
+                'rgba(241, 196, 15, 0.8)',   // Yellow
+                'rgba(230, 126, 34, 0.8)',   // Orange
+                'rgba(231, 76, 60, 0.8)',    // Red
+                'rgba(149, 165, 166, 0.8)',  // Gray
+                'rgba(26, 188, 156, 0.8)',   // Turquoise
+            ];
+
+            // If we need more colors than predefined, generate random ones
+            const colors = [...baseColors];
+            while (colors.length < count) {
+                const r = Math.floor(Math.random() * 200 + 55);
+                const g = Math.floor(Math.random() * 200 + 55);
+                const b = Math.floor(Math.random() * 200 + 55);
+                colors.push(`rgba(${r}, ${g}, ${b}, 0.8)`);
+            }
+
+            return colors.slice(0, count);
+        }
+
+        // Reload chart after successful form submission
+        function reloadChartAfterSubmit() {
+            setTimeout(() => {
+                loadChart();
+            }, 1000);
         }
     </script>
 </body>
