@@ -25,7 +25,7 @@
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 600px;
+            max-width: 1200px;
             width: 100%;
             padding: 40px;
         }
@@ -42,6 +42,26 @@
             color: #666;
             margin-bottom: 30px;
             font-size: 14px;
+        }
+
+        .nav-links {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .nav-links a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 10px 20px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            background: #f0f0f0;
         }
 
         .form-group {
@@ -260,6 +280,10 @@
         <h1>🩸 Hemo - บันทึกผลเพาะเชื้อเลือด</h1>
         <p class="subtitle">โรงพยาบาลม่วงสามสิบ</p>
 
+        <div class="nav-links">
+            <a href="dashboard.html" target="_blank">📊 ดูกราฟแบบเต็มหน้าจอ</a>
+        </div>
+
         <div id="alert" class="alert"></div>
         
         <div class="loading" id="loading">
@@ -283,8 +307,11 @@
             </div>
 
             <div class="form-group">
-                <label for="department">แผนกที่ส่งตรวจ</label>
-                <input type="text" id="department" name="department" placeholder="เช่น ER, IPD, OPD">
+                <label for="department">แผนกที่ส่งตรวจ <span class="required">*</span></label>
+                <select id="department" name="department" required>
+                    <option value="">-- เลือกแผนก --</option>
+                </select>
+                <div class="helper-text">กำลังโหลดรายการแผนกจาก Google Sheets...</div>
             </div>
 
             <div class="form-group">
@@ -329,6 +356,24 @@
                 </div>
             </div>
         </div>
+
+        <!-- Department Chart Section -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <h2>🏥 สถิติแยกตามแผนกที่เจาะ</h2>
+                <p>แสดงข้อมูล 12 เดือนล่าสุด</p>
+            </div>
+            <div class="chart-container">
+                <canvas id="departmentChart"></canvas>
+                <div class="chart-loading" id="deptChartLoading">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 10px;">กำลังโหลดข้อมูลกราฟ...</p>
+                </div>
+                <div class="chart-error" id="deptChartError" style="display: none;">
+                    ไม่สามารถโหลดข้อมูลกราฟได้
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Chart.js Library -->
@@ -336,15 +381,17 @@
 
     <script>
         // ⚠️ IMPORTANT: Replace this URL with your deployed Google Apps Script Web App URL
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxTxGU0AK8TS8Do9dMRwnd_0ljnTRbCFV1rz9z3JrvkkmA0Zz7K-naMoneBiCcu4z4Y/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxVeQwlvtB1glqRYS9K0GQouDHGrLsILR2jm7PY76o68pXR0_s9tkB5TQROWJoqyX6w/exec';
 
         // Set default date to today
         document.getElementById('dateCollected').valueAsDate = new Date();
 
-        // Load pathogens on page load
+        // Load data on page load
         window.addEventListener('DOMContentLoaded', () => {
             loadPathogens();
+            loadDepartments();
             loadChart();
+            loadDepartmentChart();
         });
 
         async function loadPathogens() {
@@ -380,6 +427,34 @@
             }
         }
 
+        async function loadDepartments() {
+            const departmentSelect = document.getElementById('department');
+            
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=getDepartments');
+                const result = await response.json();
+
+                if (result.success) {
+                    departmentSelect.innerHTML = '<option value="">-- เลือกแผนก --</option>';
+                    
+                    result.data.forEach(dept => {
+                        const option = document.createElement('option');
+                        option.value = dept.name;
+                        option.textContent = dept.name;
+                        departmentSelect.appendChild(option);
+                    });
+
+                    departmentSelect.parentElement.querySelector('.helper-text').textContent = 
+                        `โหลดรายการแผนกสำเร็จ (${result.data.length} รายการ)`;
+                } else {
+                    showAlert('error', 'ไม่สามารถโหลดรายการแผนกได้: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error loading departments:', error);
+                showAlert('error', 'เกิดข้อผิดพลาดในการโหลดข้อมูลแผนก');
+            }
+        }
+
         document.getElementById('hemoForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -406,7 +481,7 @@
                 if (result.success) {
                     showAlert('success', '✅ บันทึกข้อมูลสำเร็จ!');
                     resetForm();
-                    reloadChartAfterSubmit(); // Reload chart with new data
+                    reloadChartAfterSubmit();
                 } else {
                     showAlert('error', '❌ เกิดข้อผิดพลาด: ' + result.message);
                 }
@@ -439,6 +514,7 @@
         // ==================== CHART FUNCTIONS ====================
 
         let pathogenChart = null;
+        let departmentChart = null;
 
         async function loadChart() {
             const chartLoading = document.getElementById('chartLoading');
@@ -453,9 +529,19 @@
                 const response = await fetch(SCRIPT_URL + '?action=getChartData');
                 const result = await response.json();
 
+                console.log('Chart data received:', result);
+
                 if (result.success && result.data) {
-                    renderChart(result.data);
-                    canvas.style.display = 'block';
+                    if (result.data.months && result.data.months.length > 0 && 
+                        result.data.datasets && result.data.datasets.length > 0) {
+                        console.log('Rendering chart with data:', result.data);
+                        renderChart(result.data);
+                        canvas.style.display = 'block';
+                    } else {
+                        console.log('No data available for chart');
+                        chartError.textContent = 'ยังไม่มีข้อมูลสำหรับแสดงกราฟ กรุณาบันทึกข้อมูลก่อน';
+                        chartError.style.display = 'block';
+                    }
                 } else {
                     chartError.textContent = 'ไม่สามารถโหลดข้อมูลกราฟได้: ' + (result.message || 'Unknown error');
                     chartError.style.display = 'block';
@@ -472,15 +558,24 @@
         function renderChart(data) {
             const ctx = document.getElementById('pathogenChart').getContext('2d');
 
-            // Destroy existing chart if exists
+            console.log('Rendering chart with:', data);
+
+            if (!data.months || data.months.length === 0) {
+                console.error('No months data');
+                return;
+            }
+
+            if (!data.datasets || data.datasets.length === 0) {
+                console.error('No datasets');
+                return;
+            }
+
             if (pathogenChart) {
                 pathogenChart.destroy();
             }
 
-            // Generate colors for each pathogen
             const colors = generateColors(data.datasets.length);
 
-            // Prepare datasets with colors
             const datasets = data.datasets.map((dataset, index) => ({
                 label: dataset.label,
                 data: dataset.data,
@@ -489,7 +584,8 @@
                 borderWidth: 1
             }));
 
-            // Create chart
+            console.log('Chart datasets prepared:', datasets);
+
             pathogenChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -556,29 +652,29 @@
                     }
                 }
             });
+
+            console.log('Chart created successfully');
         }
 
-        // Generate distinct colors for chart
         function generateColors(count) {
             const baseColors = [
-                'rgba(102, 126, 234, 0.8)',  // Purple
-                'rgba(255, 99, 132, 0.8)',   // Red
-                'rgba(54, 162, 235, 0.8)',   // Blue
-                'rgba(255, 206, 86, 0.8)',   // Yellow
-                'rgba(75, 192, 192, 0.8)',   // Teal
-                'rgba(153, 102, 255, 0.8)',  // Purple
-                'rgba(255, 159, 64, 0.8)',   // Orange
-                'rgba(46, 204, 113, 0.8)',   // Green
-                'rgba(52, 152, 219, 0.8)',   // Blue
-                'rgba(155, 89, 182, 0.8)',   // Purple
-                'rgba(241, 196, 15, 0.8)',   // Yellow
-                'rgba(230, 126, 34, 0.8)',   // Orange
-                'rgba(231, 76, 60, 0.8)',    // Red
-                'rgba(149, 165, 166, 0.8)',  // Gray
-                'rgba(26, 188, 156, 0.8)',   // Turquoise
+                'rgba(102, 126, 234, 0.8)',
+                'rgba(255, 99, 132, 0.8)',
+                'rgba(54, 162, 235, 0.8)',
+                'rgba(255, 206, 86, 0.8)',
+                'rgba(75, 192, 192, 0.8)',
+                'rgba(153, 102, 255, 0.8)',
+                'rgba(255, 159, 64, 0.8)',
+                'rgba(46, 204, 113, 0.8)',
+                'rgba(52, 152, 219, 0.8)',
+                'rgba(155, 89, 182, 0.8)',
+                'rgba(241, 196, 15, 0.8)',
+                'rgba(230, 126, 34, 0.8)',
+                'rgba(231, 76, 60, 0.8)',
+                'rgba(149, 165, 166, 0.8)',
+                'rgba(26, 188, 156, 0.8)',
             ];
 
-            // If we need more colors than predefined, generate random ones
             const colors = [...baseColors];
             while (colors.length < count) {
                 const r = Math.floor(Math.random() * 200 + 55);
@@ -590,11 +686,176 @@
             return colors.slice(0, count);
         }
 
-        // Reload chart after successful form submission
         function reloadChartAfterSubmit() {
             setTimeout(() => {
                 loadChart();
+                loadDepartmentChart();
             }, 1000);
+        }
+
+        async function loadDepartmentChart() {
+            const chartLoading = document.getElementById('deptChartLoading');
+            const chartError = document.getElementById('deptChartError');
+            const canvas = document.getElementById('departmentChart');
+
+            chartLoading.style.display = 'block';
+            chartError.style.display = 'none';
+            canvas.style.display = 'none';
+
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=getDepartmentChartData');
+                const result = await response.json();
+
+                console.log('Department chart data received:', result);
+
+                if (result.success && result.data) {
+                    if (result.data.months && result.data.months.length > 0 && 
+                        result.data.datasets && result.data.datasets.length > 0) {
+                        console.log('Rendering department chart with data:', result.data);
+                        renderDepartmentChart(result.data);
+                        canvas.style.display = 'block';
+                    } else {
+                        console.log('No data available for department chart');
+                        chartError.textContent = 'ยังไม่มีข้อมูลสำหรับแสดงกราฟ กรุณาบันทึกข้อมูลก่อน';
+                        chartError.style.display = 'block';
+                    }
+                } else {
+                    chartError.textContent = 'ไม่สามารถโหลดข้อมูลกราฟได้: ' + (result.message || 'Unknown error');
+                    chartError.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading department chart data:', error);
+                chartError.textContent = 'เกิดข้อผิดพลาดในการโหลดข้อมูลกราฟ';
+                chartError.style.display = 'block';
+            } finally {
+                chartLoading.style.display = 'none';
+            }
+        }
+
+        function renderDepartmentChart(data) {
+            const ctx = document.getElementById('departmentChart').getContext('2d');
+
+            console.log('Rendering department chart with:', data);
+
+            if (!data.months || data.months.length === 0) {
+                console.error('No months data');
+                return;
+            }
+
+            if (!data.datasets || data.datasets.length === 0) {
+                console.error('No datasets');
+                return;
+            }
+
+            if (departmentChart) {
+                departmentChart.destroy();
+            }
+
+            const colors = generateDepartmentColors(data.datasets.length);
+
+            const datasets = data.datasets.map((dataset, index) => ({
+                label: dataset.label,
+                data: dataset.data,
+                backgroundColor: colors[index],
+                borderColor: colors[index],
+                borderWidth: 1
+            }));
+
+            console.log('Department chart datasets prepared:', datasets);
+
+            departmentChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.months,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 15,
+                                padding: 15,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(function(tooltipItem) {
+                                        total += tooltipItem.parsed.y;
+                                    });
+                                    return 'รวม: ' + total + ' ราย';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1,
+                                font: {
+                                    size: 11
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log('Department chart created successfully');
+        }
+
+        function generateDepartmentColors(count) {
+            const deptColors = [
+                'rgba(231, 76, 60, 0.8)',
+                'rgba(52, 152, 219, 0.8)',
+                'rgba(46, 204, 113, 0.8)',
+                'rgba(155, 89, 182, 0.8)',
+                'rgba(241, 196, 15, 0.8)',
+                'rgba(230, 126, 34, 0.8)',
+                'rgba(26, 188, 156, 0.8)',
+                'rgba(149, 165, 166, 0.8)',
+                'rgba(192, 57, 43, 0.8)',
+                'rgba(41, 128, 185, 0.8)',
+            ];
+
+            const colors = [...deptColors];
+            while (colors.length < count) {
+                const r = Math.floor(Math.random() * 200 + 55);
+                const g = Math.floor(Math.random() * 200 + 55);
+                const b = Math.floor(Math.random() * 200 + 55);
+                colors.push(`rgba(${r}, ${g}, ${b}, 0.8)`);
+            }
+
+            return colors.slice(0, count);
         }
     </script>
 </body>

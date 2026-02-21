@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - สถิติการพบเชื้อสงสัยปนเปื้อน - Hemo c/s</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Sarabun', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f6fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .nav-links {
+            margin-top: 15px;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .chart-card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .chart-header {
+            margin-bottom: 25px;
+        }
+
+        .chart-header h2 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .chart-header p {
+            color: #999;
+            font-size: 14px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 450px;
+        }
+
+        .chart-loading {
+            text-align: center;
+            padding: 100px 20px;
+            color: #999;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .chart-error {
+            text-align: center;
+            padding: 100px 20px;
+            color: #e74c3c;
+            font-size: 16px;
+        }
+
+        .refresh-info {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .last-update {
+            text-align: right;
+            color: #999;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .chart-container {
+                height: 350px;
+            }
+
+            .stats-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Dashboard - สถิติการพบเชื้อสงสัยปนเปื้อน - Hemo c/s</h1>
+        <p>โรงพยาบาลม่วงสามสิบ</p>
+        <!-- <div class="nav-links">
+            <a href="index.html">← กลับไปหน้ากรอกข้อมูล</a>
+        </div> -->
+    </div>
+
+    <div class="refresh-info">
+        🔄 กราฟจะอัปเดตอัตโนมัติทุก 5 นาที | คลิก F5 เพื่อ Refresh ทันที
+    </div>
+
+    <div class="stats-container">
+        <div class="stat-card">
+            <div class="stat-number" id="totalRecords">-</div>
+            <div class="stat-label">รายการทั้งหมด</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="totalPathogens">-</div>
+            <div class="stat-label">ชนิดเชื้อ</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="totalDepartments">-</div>
+            <div class="stat-label">แผนก</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="thisMonthCount">-</div>
+            <div class="stat-label">เดือนนี้</div>
+        </div>
+    </div>
+
+    <div class="chart-card">
+        <div class="chart-header">
+            <h2>🦠 สถิติเชื้อที่พบแยกตามเดือน</h2>
+            <p>แสดงข้อมูล 12 เดือนล่าสุด (Stacked Bar Chart)</p>
+        </div>
+        <div class="chart-container">
+            <canvas id="pathogenChart"></canvas>
+            <div class="chart-loading" id="chartLoading">
+                <div class="spinner"></div>
+                <p>กำลังโหลดข้อมูลกราฟ...</p>
+            </div>
+            <div class="chart-error" id="chartError" style="display: none;">
+                ไม่สามารถโหลดข้อมูลกราฟได้
+            </div>
+        </div>
+        <div class="last-update">อัปเดตล่าสุด: <span id="pathogenChartUpdate">-</span></div>
+    </div>
+
+    <div class="chart-card">
+        <div class="chart-header">
+            <h2>🏥 สถิติแยกตามแผนกที่เจาะ</h2>
+            <p>แสดงข้อมูล 12 เดือนล่าสุด (Stacked Bar Chart)</p>
+        </div>
+        <div class="chart-container">
+            <canvas id="departmentChart"></canvas>
+            <div class="chart-loading" id="deptChartLoading">
+                <div class="spinner"></div>
+                <p>กำลังโหลดข้อมูลกราฟ...</p>
+            </div>
+            <div class="chart-error" id="deptChartError" style="display: none;">
+                ไม่สามารถโหลดข้อมูลกราฟได้
+            </div>
+        </div>
+        <div class="last-update">อัปเดตล่าสุด: <span id="deptChartUpdate">-</span></div>
+    </div>
+
+    <!-- Chart.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <script>
+        // ⚠️ IMPORTANT: Replace this URL with your deployed Google Apps Script Web App URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxVeQwlvtB1glqRYS9K0GQouDHGrLsILR2jm7PY76o68pXR0_s9tkB5TQROWJoqyX6w/exec';
+
+        let pathogenChart = null;
+        let departmentChart = null;
+
+        // Load charts on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadAllCharts();
+            
+            // Auto refresh every 5 minutes
+            setInterval(loadAllCharts, 5 * 60 * 1000);
+        });
+
+        async function loadAllCharts() {
+            await loadChart();
+            await loadDepartmentChart();
+            updateStats();
+        }
+
+        async function loadChart() {
+            const chartLoading = document.getElementById('chartLoading');
+            const chartError = document.getElementById('chartError');
+            const canvas = document.getElementById('pathogenChart');
+
+            chartLoading.style.display = 'block';
+            chartError.style.display = 'none';
+            canvas.style.display = 'none';
+
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=getChartData');
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    if (result.data.months && result.data.months.length > 0 && 
+                        result.data.datasets && result.data.datasets.length > 0) {
+                        renderChart(result.data);
+                        canvas.style.display = 'block';
+                        updateTimestamp('pathogenChartUpdate');
+                    } else {
+                        chartError.textContent = 'ยังไม่มีข้อมูลสำหรับแสดงกราฟ';
+                        chartError.style.display = 'block';
+                    }
+                } else {
+                    chartError.textContent = 'ไม่สามารถโหลดข้อมูลกราฟได้';
+                    chartError.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+                chartError.textContent = 'เกิดข้อผิดพลาดในการโหลดข้อมูลกราฟ';
+                chartError.style.display = 'block';
+            } finally {
+                chartLoading.style.display = 'none';
+            }
+        }
+
+        function renderChart(data) {
+            const ctx = document.getElementById('pathogenChart').getContext('2d');
+
+            if (pathogenChart) {
+                pathogenChart.destroy();
+            }
+
+            const colors = generateColors(data.datasets.length);
+
+            const datasets = data.datasets.map((dataset, index) => ({
+                label: dataset.label,
+                data: dataset.data,
+                backgroundColor: colors[index],
+                borderColor: colors[index],
+                borderWidth: 1
+            }));
+
+            pathogenChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.months,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 20,
+                                padding: 15,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(function(tooltipItem) {
+                                        total += tooltipItem.parsed.y;
+                                    });
+                                    return 'รวม: ' + total + ' ราย';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadDepartmentChart() {
+            const chartLoading = document.getElementById('deptChartLoading');
+            const chartError = document.getElementById('deptChartError');
+            const canvas = document.getElementById('departmentChart');
+
+            chartLoading.style.display = 'block';
+            chartError.style.display = 'none';
+            canvas.style.display = 'none';
+
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=getDepartmentChartData');
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    if (result.data.months && result.data.months.length > 0 && 
+                        result.data.datasets && result.data.datasets.length > 0) {
+                        renderDepartmentChart(result.data);
+                        canvas.style.display = 'block';
+                        updateTimestamp('deptChartUpdate');
+                    } else {
+                        chartError.textContent = 'ยังไม่มีข้อมูลสำหรับแสดงกราฟ';
+                        chartError.style.display = 'block';
+                    }
+                } else {
+                    chartError.textContent = 'ไม่สามารถโหลดข้อมูลกราฟได้';
+                    chartError.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading department chart data:', error);
+                chartError.textContent = 'เกิดข้อผิดพลาดในการโหลดข้อมูลกราฟ';
+                chartError.style.display = 'block';
+            } finally {
+                chartLoading.style.display = 'none';
+            }
+        }
+
+        function renderDepartmentChart(data) {
+            const ctx = document.getElementById('departmentChart').getContext('2d');
+
+            if (departmentChart) {
+                departmentChart.destroy();
+            }
+
+            const colors = generateDepartmentColors(data.datasets.length);
+
+            const datasets = data.datasets.map((dataset, index) => ({
+                label: dataset.label,
+                data: dataset.data,
+                backgroundColor: colors[index],
+                borderColor: colors[index],
+                borderWidth: 1
+            }));
+
+            departmentChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.months,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 20,
+                                padding: 15,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(function(tooltipItem) {
+                                        total += tooltipItem.parsed.y;
+                                    });
+                                    return 'รวม: ' + total + ' ราย';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateColors(count) {
+            const baseColors = [
+                'rgba(102, 126, 234, 0.8)',
+                'rgba(255, 99, 132, 0.8)',
+                'rgba(54, 162, 235, 0.8)',
+                'rgba(255, 206, 86, 0.8)',
+                'rgba(75, 192, 192, 0.8)',
+                'rgba(153, 102, 255, 0.8)',
+                'rgba(255, 159, 64, 0.8)',
+                'rgba(46, 204, 113, 0.8)',
+                'rgba(52, 152, 219, 0.8)',
+                'rgba(155, 89, 182, 0.8)',
+                'rgba(241, 196, 15, 0.8)',
+                'rgba(230, 126, 34, 0.8)',
+                'rgba(231, 76, 60, 0.8)',
+                'rgba(149, 165, 166, 0.8)',
+                'rgba(26, 188, 156, 0.8)',
+            ];
+
+            const colors = [...baseColors];
+            while (colors.length < count) {
+                const r = Math.floor(Math.random() * 200 + 55);
+                const g = Math.floor(Math.random() * 200 + 55);
+                const b = Math.floor(Math.random() * 200 + 55);
+                colors.push(`rgba(${r}, ${g}, ${b}, 0.8)`);
+            }
+
+            return colors.slice(0, count);
+        }
+
+        function generateDepartmentColors(count) {
+            const deptColors = [
+                'rgba(231, 76, 60, 0.8)',
+                'rgba(52, 152, 219, 0.8)',
+                'rgba(46, 204, 113, 0.8)',
+                'rgba(155, 89, 182, 0.8)',
+                'rgba(241, 196, 15, 0.8)',
+                'rgba(230, 126, 34, 0.8)',
+                'rgba(26, 188, 156, 0.8)',
+                'rgba(149, 165, 166, 0.8)',
+                'rgba(192, 57, 43, 0.8)',
+                'rgba(41, 128, 185, 0.8)',
+            ];
+
+            const colors = [...deptColors];
+            while (colors.length < count) {
+                const r = Math.floor(Math.random() * 200 + 55);
+                const g = Math.floor(Math.random() * 200 + 55);
+                const b = Math.floor(Math.random() * 200 + 55);
+                colors.push(`rgba(${r}, ${g}, ${b}, 0.8)`);
+            }
+
+            return colors.slice(0, count);
+        }
+
+        function updateTimestamp(elementId) {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('th-TH');
+            document.getElementById(elementId).textContent = timeStr;
+        }
+
+        function updateStats() {
+            // Calculate stats from chart data
+            if (pathogenChart && pathogenChart.data) {
+                const datasets = pathogenChart.data.datasets;
+                const labels = pathogenChart.data.labels;
+                
+                // Total pathogens
+                document.getElementById('totalPathogens').textContent = datasets.length;
+                
+                // Total records (sum of all data points)
+                let total = 0;
+                datasets.forEach(dataset => {
+                    dataset.data.forEach(value => total += value);
+                });
+                document.getElementById('totalRecords').textContent = total;
+                
+                // This month count (last month in the chart)
+                if (labels.length > 0) {
+                    let thisMonthTotal = 0;
+                    datasets.forEach(dataset => {
+                        thisMonthTotal += dataset.data[dataset.data.length - 1] || 0;
+                    });
+                    document.getElementById('thisMonthCount').textContent = thisMonthTotal;
+                }
+            }
+            
+            if (departmentChart && departmentChart.data) {
+                const datasets = departmentChart.data.datasets;
+                document.getElementById('totalDepartments').textContent = datasets.length;
+            }
+        }
+    </script>
+</body>
+</html>
